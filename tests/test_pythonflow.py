@@ -19,6 +19,7 @@ import random
 import uuid
 import pythonflow as pf
 import pytest
+import six
 
 
 def test_consistent_context():
@@ -65,12 +66,10 @@ class MatmulDummy:
             return NotImplemented
         return self.value * other
 
-
-@pytest.fixture(params=[
+operators = [
     ('+', 1, 2),
     ('-', 3, 7.0),
     ('*', 2, 7),
-    ('@', MatmulDummy(3), 4),
     ('/', 3, 2),
     ('//', 8, 3),
     ('%', 8, 5),
@@ -86,7 +85,11 @@ class MatmulDummy:
     ('>=', 9, 2),
     ('<', 7, 1),
     ('<=', 8, 7),
-])
+]
+if six.PY3:
+    operators.append(('@', MatmulDummy(3), 4))
+
+@pytest.fixture(params=operators)
 def binary_operators(request):
     operator, a, b = request.param
     expected = expected = eval('a %s b' % operator)
@@ -201,7 +204,7 @@ def test_assert_with_dependencies(message):
     with pf.Graph() as graph:
         x = pf.placeholder(name='x')
         if message:
-            assertion = pf.assert_(x < 10, message, 10, x)
+            assertion = pf.assert_(x < 10, None, message, 10, x)
         else:
             assertion = pf.assert_(x < 10)
         with pf.control_dependencies([assertion]):
@@ -230,8 +233,8 @@ def test_assert_with_value():
 def test_logger(level):
     with pf.Graph() as graph:
         logger = pf.Logger(uuid.uuid4().hex)
-        log1 = logger.log(level, "this is a %s message", "test")
-        log2 = getattr(logger, level)("this is another %s message", "test")
+        log1 = logger.log(level, u"this is a %s message", "test")
+        log2 = getattr(logger, level)(u"this is another %s message", "test")
 
     # Add a handler to the logger
     stream = io.StringIO()

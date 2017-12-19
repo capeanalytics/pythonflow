@@ -59,7 +59,7 @@ class batch_iterable:  # pylint: disable=invalid-name, too-few-public-methods
         self.transpose = transpose
 
     def __len__(self):
-        return math.ceil(len(self.iterable) / self.batch_size)
+        return int(math.ceil(float(len(self.iterable)) / self.batch_size))
 
     def __iter__(self):
         batch = []

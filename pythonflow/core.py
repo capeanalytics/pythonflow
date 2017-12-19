@@ -14,15 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
+
 import collections
 import contextlib
 import functools
 import importlib
 import operator
+import six
 import uuid
 
 
-class Graph:
+class Graph(object):
     """
     Data flow graph constituting a directed acyclic graph of operations.
     """
@@ -118,7 +121,7 @@ class Graph:
 
         return context
 
-    def __call__(self, fetches, context=None, *, callback=None, **kwargs):
+    def __call__(self, fetches, context=None, callback=None, **kwargs):
         """
         Evaluate one or more operations given a context.
 
@@ -184,7 +187,7 @@ class Graph:
         return graph
 
 
-class Operation:  # pylint:disable=too-few-public-methods
+class Operation(object):  # pylint:disable=too-few-public-methods
     """
     Base class for operations.
 
@@ -205,8 +208,12 @@ class Operation:  # pylint:disable=too-few-public-methods
     dependencies : list
         Explicit sequence of operations to evaluate before evaluating this operation.
     """
-    def __init__(self, *args, length=None, graph=None, name=None, dependencies=None, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.args = args
+        length = kwargs.pop('length', None)
+        graph = kwargs.pop('graph', None)
+        name = kwargs.pop('name', None)
+        dependencies = kwargs.pop('dependencies', None)
         self.kwargs = kwargs
         self.length = length
         self.graph = Graph.get_active_graph(graph)
@@ -373,6 +380,12 @@ class Operation:  # pylint:disable=too-few-public-methods
     def __rmul__(self, other):
         return mul(other, self, graph=self.graph)
 
+    def __div__(self, other):
+        return div(self, other, graph=self.graph)
+
+    def __rdiv__(self, other):
+        return div(other, self, graph=self.graph)
+
     def __truediv__(self, other):
         return truediv(self, other, graph=self.graph)
 
@@ -495,7 +508,9 @@ def opmethod(target=None, **kwargs):
     # This is called when the decorator is used without arguments
     @functools.wraps(target)
     def _wrapper(*args, **kwargs_inner):
-        return func_op(target, *args, **kwargs_inner, **kwargs)
+        merged_kwargs = kwargs.copy()
+        merged_kwargs.update(kwargs_inner)
+        return func_op(target, *args, **merged_kwargs)
     return _wrapper
 
 
@@ -514,7 +529,8 @@ inv = opmethod(operator.inv)
 le = opmethod(operator.le)
 lshift = opmethod(operator.lshift)
 lt = opmethod(operator.lt)
-matmul = opmethod(operator.matmul)
+if six.PY3:
+    matmul = opmethod(operator.matmul)
 methodcaller = opmethod(operator.methodcaller)
 mod = opmethod(operator.mod)
 mul = opmethod(operator.mul)
@@ -526,6 +542,7 @@ pos = opmethod(operator.pos)
 pow_ = opmethod(operator.pow)
 rshift = opmethod(operator.rshift)
 sub = opmethod(operator.sub)
+div = opmethod(operator.div)
 truediv = opmethod(operator.truediv)
 xor = opmethod(operator.xor)
 map_ = opmethod(map)

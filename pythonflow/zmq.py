@@ -14,16 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import absolute_import
+
 import pickle
-import queue
 import threading
 import uuid
 import zmq
 
+from six.moves import queue
 from .util import batch_iterable
 
 
-class ZeroBase:  # pylint: disable=too-few-public-methods
+class ZeroBase(object):  # pylint: disable=too-few-public-methods
     """
     Base class for ZeroMQ communication.
 
@@ -167,7 +169,7 @@ class Consumer(ZeroBase):
             _identifier = message[:self.IDENTIFIER_SIZE]
             status = message[self.IDENTIFIER_SIZE]
             payload = self.loads(message[1 + self.IDENTIFIER_SIZE:])
-            if status:
+            if status != b'\x00':
                 raise payload
             else:
                 cache[_identifier] = payload
@@ -280,7 +282,7 @@ class Consumer(ZeroBase):
         """
         return self.get_message(self.build_message(fetches, context or {}, **kwargs))
 
-    def map(self, fetches, contexts, *, batch_size=1, max_messages=1, **kwargs):
+    def map(self, fetches, contexts, batch_size=1, max_messages=1, **kwargs):
         """
         Evaluate one or more operations remotely given a sequence of contexts.
 
@@ -342,9 +344,9 @@ class Processor(ZeroBase):  # pragma: no cover
             try:
                 payload = self.loads(message[self.IDENTIFIER_SIZE + 1:])
                 try:
-                    if command == 0:
+                    if command == b'\x00':
                         payload = self.target(payload)
-                    elif command == 1:
+                    elif command == b'\x01':
                         payload = tuple(map(self.target, payload))
                     else:
                         status = b'\x03'
