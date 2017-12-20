@@ -17,6 +17,7 @@
 from __future__ import absolute_import
 
 import pickle
+import six
 import threading
 import uuid
 import zmq
@@ -202,7 +203,7 @@ class Consumer(ZeroBase):
         Build a message to be processed by a remote graph.
         """
         for key in context:
-            if not isinstance(key, str):
+            if not isinstance(key, six.string_types):
                 raise TypeError("context keys must be strings but got '%s'" % key)
         # Add the keyword arguments
         for key, value in kwargs.items():

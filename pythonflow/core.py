@@ -71,7 +71,7 @@ class Graph(object):
             if operation.graph is not self:
                 raise RuntimeError("operation '%s' does not belong to this graph" % operation)
             return operation
-        elif isinstance(operation, str):
+        elif isinstance(operation, six.string_types):
             return self.operations[operation]
         else:
             raise ValueError("'%s' is not an `Operation` instance or operation name" % operation)
@@ -148,7 +148,7 @@ class Graph(object):
         ValueError
             If `context` is not a mapping.
         """
-        if isinstance(fetches, (str, Operation)):
+        if isinstance(fetches, six.string_types + (Operation,)):
             fetches = [fetches]
             single = True
         elif isinstance(fetches, collections.Sequence):

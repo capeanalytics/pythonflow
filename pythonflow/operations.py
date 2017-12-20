@@ -16,6 +16,7 @@
 
 import functools
 import logging
+import six
 
 from .core import opmethod, Operation, func_op
 
@@ -115,7 +116,7 @@ class Logger:
 
     @functools.wraps(logging.Logger.log)
     def log(self, level, message, *args, **kwargs):  # pylint: disable=missing-docstring
-        if isinstance(level, str):
+        if isinstance(level, six.string_types):
             level = getattr(logging, level.upper())
         return func_op(self.logger.log, level, message, *args, **kwargs)
 
