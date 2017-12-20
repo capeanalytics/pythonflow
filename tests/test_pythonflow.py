@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import io
 import logging
 import pickle
 import random
@@ -233,11 +232,11 @@ def test_assert_with_value():
 def test_logger(level):
     with pf.Graph() as graph:
         logger = pf.Logger(uuid.uuid4().hex)
-        log1 = logger.log(level, u"this is a %s message", "test")
-        log2 = getattr(logger, level)(u"this is another %s message", "test")
+        log1 = logger.log(level, "this is a %s message", "test")
+        log2 = getattr(logger, level)("this is another %s message", "test")
 
     # Add a handler to the logger
-    stream = io.StringIO()
+    stream = six.StringIO()
     logger.logger.setLevel(logging.DEBUG)
     logger.logger.addHandler(logging.StreamHandler(stream))
     graph([log1, log2])
