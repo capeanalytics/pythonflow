@@ -95,8 +95,11 @@ class Consumer(ZeroBase):
     """
     def __init__(self, push_address, pull_address, dumps=None, loads=None):  # pylint: disable=too-many-arguments
         super(Consumer, self).__init__(push_address, pull_address, 'bind', dumps, loads)
+        # Set 1 second timeout for send operations to prevent infinite blocking of push_messages thread when no
+        # processor is connected.
+        self.pusher.setsockopt(zmq.SNDTIMEO, 1 * 1000)  # pylint: disable=no-member
 
-    def push_message(self, message, identifier_queue=None, command=b'\x00'):
+    def push_message(self, message, stop_event=None, identifier_queue=None, command=b'\x00'):
         """
         Push a message.
 
@@ -104,6 +107,8 @@ class Consumer(ZeroBase):
         ----------
         message : object
             Message to be pushed.
+        stop_event : threading.Event
+            Event used to stop pushing messages.
         identifier_queue : queue.Queue
             Queue used to keep track of the order of messages.
         command : bytes
@@ -118,7 +123,16 @@ class Consumer(ZeroBase):
         identifier = uuid.uuid4().bytes
         if identifier_queue:
             identifier_queue.put(identifier, timeout=1)
-        self.pusher.send(b''.join([identifier, command, self.dumps(message)]))
+
+        while stop_event is None or not stop_event.is_set():
+            try:
+                # pylint: disable=no-member
+                self.pusher.send(b''.join([identifier, command, self.dumps(message)]))
+                break
+            except zmq.error.Again:
+                pass
+
+        # self.pusher.send(b''.join([identifier, command, self.dumps(message)]))
         return identifier
 
     def push_messages(self, messages, stop_event, identifier_queue, command=b'\x00'):
@@ -141,7 +155,7 @@ class Consumer(ZeroBase):
         message = next(messages)
         while not stop_event.is_set():
             try:
-                self.push_message(message, identifier_queue, command)
+                self.push_message(message, stop_event, identifier_queue, command)
                 message = next(messages)
             except queue.Full:  # pragma: no cover
                 pass
