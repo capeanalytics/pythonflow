@@ -230,6 +230,9 @@ class Operation(object):  # pylint:disable=too-few-public-methods
     def __setstate__(self, data):
         self.__dict__.update(data)
 
+    def __getnewargs__(self):
+        return ()
+
     @property
     def name(self):
         """str : Unique name of the operation"""
