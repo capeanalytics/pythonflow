@@ -23,6 +23,9 @@ import importlib
 import operator
 import six
 import uuid
+import threading
+
+data_local = threading.local()
 
 
 class Graph(object):
@@ -33,16 +36,14 @@ class Graph(object):
         self.operations = {}
         self.dependencies = []
 
-    default_graph = None
-
     def __enter__(self):
-        assert self.default_graph is None, "cannot have more than one default graph"
-        Graph.default_graph = self
+        assert not hasattr(data_local, 'default_graph') or data_local.default_graph is None, "cannot have more than one default graph"
+        data_local.default_graph = self
         return self
 
     def __exit__(self, *args):
-        assert self.default_graph is self
-        Graph.default_graph = None
+        assert hasattr(data_local, 'default_graph') and data_local.default_graph is self
+        data_local.default_graph = None
 
     def normalize_operation(self, operation):  # pylint:disable=W0621
         """
@@ -181,7 +182,12 @@ class Graph(object):
         ValueError
             If no `Graph` instance can be obtained.
         """
-        graph = graph or Graph.default_graph
+        if not graph:
+            try:
+                graph = data_local.default_graph
+            except:
+                graph = None
+
         if not graph:
             raise ValueError("`graph` must be given explicitly or a default graph must be set")
         return graph
