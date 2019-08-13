@@ -16,13 +16,18 @@
 
 from __future__ import print_function
 
+import builtins
 import collections
 import contextlib
 import functools
 import importlib
 import operator
 import six
+import threading
+import traceback
 import uuid
+
+from .util import _noop_callback
 
 
 class Graph(object):
@@ -33,16 +38,17 @@ class Graph(object):
         self.operations = {}
         self.dependencies = []
 
-    default_graph = None
+    _globals = threading.local()
 
     def __enter__(self):
-        assert self.default_graph is None, "cannot have more than one default graph"
-        Graph.default_graph = self
+        assert getattr(self._globals, 'default_graph', None) is  None, \
+            "cannot have more than one default graph"
+        Graph._globals.default_graph = self
         return self
 
     def __exit__(self, *args):
-        assert self.default_graph is self
-        Graph.default_graph = None
+        assert self._globals.default_graph is self
+        Graph._globals.default_graph = None
 
     def normalize_operation(self, operation):  # pylint:disable=W0621
         """
@@ -69,12 +75,11 @@ class Graph(object):
         """
         if isinstance(operation, Operation):
             if operation.graph is not self:
-                raise RuntimeError("operation '%s' does not belong to this graph" % operation)
+                raise RuntimeError(f"operation '{operation}' does not belong to this graph")
             return operation
         elif isinstance(operation, six.string_types):
             return self.operations[operation]
-        else:
-            raise ValueError("'%s' is not an `Operation` instance or operation name" % operation)
+        raise ValueError(f"'{operation}' is not an `Operation` instance or operation name")
 
     def normalize_context(self, context, **kwargs):
         """
@@ -109,19 +114,19 @@ class Graph(object):
             value = context.pop(operation)
             operation = self.normalize_operation(operation)
             if operation in context:
-                raise ValueError("duplicate value for operation '%s'" % operation)
+                raise ValueError(f"duplicate value for operation '{operation}'")
             context[operation] = value
 
         # Add the keyword arguments
         for name, value in kwargs.items():
             operation = self.operations[name]
             if operation in context:
-                raise ValueError("duplicate value for operation '%s'" % operation)
+                raise ValueError(f"duplicate value for operation '{operation}'")
             context[operation] = value
 
         return context
 
-    def __call__(self, fetches, context=None, callback=None, **kwargs):
+    def apply(self, fetches, context=None, *, callback=None, **kwargs):
         """
         Evaluate one or more operations given a context.
 
@@ -159,8 +164,10 @@ class Graph(object):
 
         fetches = [self.normalize_operation(operation) for operation in fetches]
         context = self.normalize_context(context, **kwargs)
-        values = [fetch.evaluate(context, callback=callback) for fetch in fetches]
+        values = [fetch.evaluate_operation(fetch, context, callback=callback) for fetch in fetches]
         return values[0] if single else tuple(values)
+
+    __call__ = apply
 
     def __getitem__(self, name):
         return self.operations[name]
@@ -181,13 +188,19 @@ class Graph(object):
         ValueError
             If no `Graph` instance can be obtained.
         """
-        graph = graph or Graph.default_graph
+        graph = graph or Graph._globals.default_graph
         if not graph:
             raise ValueError("`graph` must be given explicitly or a default graph must be set")
         return graph
 
 
-class Operation(object):  # pylint:disable=too-few-public-methods
+class EvaluationError(RuntimeError):
+    """
+    Failed to evaluate an operation.
+    """
+
+
+class Operation(object):  # pylint:disable=too-few-public-methods,too-many-instance-attributes
     """
     Base class for operations.
 
@@ -223,6 +236,8 @@ class Operation(object):  # pylint:disable=too-few-public-methods
         # Get a list of all dependencies relevant to this operation
         self.dependencies = [] if dependencies is None else dependencies
         self.dependencies.extend(self.graph.dependencies)
+        # Get the stack context so we can report where the operation was defined
+        self._stack = traceback.extract_stack()
 
     def __getstate__(self):
         return self.__dict__
@@ -264,7 +279,7 @@ class Operation(object):  # pylint:disable=too-few-public-methods
             If the current name of the operation cannot be found in the associated graph.
         """
         if name in self.graph.operations:
-            raise ValueError("duplicate name '%s'" % name)
+            raise ValueError(f"duplicate name '{name}'")
         if self._name is not None:
             self.graph.operations.pop(self._name)
         self.graph.operations[name] = self
@@ -311,12 +326,9 @@ class Operation(object):  # pylint:disable=too-few-public-methods
         args = [partial(arg) for arg in self.args]
         kwargs = {key: partial(value) for key, value in self.kwargs.items()}
         # Evaluate the operation
-        if callback:
-            with callback(self, context):
-                context[self] = value = self._evaluate(*args, **kwargs)
-        else:
+        callback = callback or _noop_callback
+        with callback(self, context):
             context[self] = value = self._evaluate(*args, **kwargs)
-
         return value
 
     def _evaluate(self, *args, **kwargs):
@@ -325,13 +337,44 @@ class Operation(object):  # pylint:disable=too-few-public-methods
         """
         raise NotImplementedError
 
-    @staticmethod
-    def evaluate_operation(operation, context, **kwargs):
+    @classmethod
+    def evaluate_operation(cls, operation, context, **kwargs):
         """
         Evaluate an operation or constant given a context.
         """
-        return operation.evaluate(context, **kwargs) if isinstance(operation, Operation) \
-            else operation
+        try:
+            if isinstance(operation, Operation):
+                return operation.evaluate(context, **kwargs)
+            partial = functools.partial(cls.evaluate_operation, context=context, **kwargs)
+            if isinstance(operation, tuple):
+                return tuple(partial(element) for element in operation)
+            if isinstance(operation, list):
+                return [partial(element) for element in operation]
+            if isinstance(operation, dict):
+                return {partial(key): partial(value) for key, value in operation.items()}
+            if isinstance(operation, slice):
+                return slice(*[partial(getattr(operation, attr))
+                               for attr in ['start', 'stop', 'step']])
+            return operation
+        except Exception as ex:  # pragma: no cover
+            stack = []
+            interactive = False
+            for frame in reversed(operation._stack):  # pylint: disable=protected-access
+                # Do not capture any internal stack traces
+                if 'pythonflow' in frame.filename:
+                    continue
+                # Stop tracing at the last interactive cell
+                if interactive and not frame.filename.startswith('<'):
+                    break  # pragma: no cover
+                interactive = frame.filename.startswith('<')
+                stack.append(frame)
+
+            stack = "".join(traceback.format_list(reversed(stack)))
+            message = "Failed to evaluate operation `%s` defined at:\n\n%s" % (operation, stack)
+            raise ex from EvaluationError(message)
+
+    def __bool__(self):
+        return True
 
     def __hash__(self):
         return id(self)
@@ -346,7 +389,7 @@ class Operation(object):  # pylint:disable=too-few-public-methods
         for i in range(num):
             yield self[i]
 
-    # pylint: disable=E1123
+    # pylint: disable=
     def __getattr__(self, name):
         return getattr_(self, name, graph=self.graph)
 
@@ -472,7 +515,7 @@ class Operation(object):  # pylint:disable=too-few-public-methods
 
     def __call__(self, *args, **kwargs):
         return call(self, *args, **kwargs)
-    # pylint: enable=E1123
+    # pylint: enable=
 
 
 class func_op(Operation):  # pylint: disable=C0103,R0903
@@ -517,50 +560,6 @@ def opmethod(target=None, **kwargs):
     return _wrapper
 
 
-# pylint: disable=C0103
-abs_ = opmethod(abs)
-add = opmethod(operator.add)
-and_ = opmethod(operator.and_)
-contains = opmethod(operator.contains)
-eq = opmethod(operator.eq)
-floordiv = opmethod(operator.floordiv)
-ge = opmethod(operator.ge)
-getattr_ = opmethod(getattr)
-getitem = opmethod(operator.getitem)
-gt = opmethod(operator.gt)
-inv = opmethod(operator.inv)
-le = opmethod(operator.le)
-lshift = opmethod(operator.lshift)
-lt = opmethod(operator.lt)
-if six.PY3:
-    matmul = opmethod(operator.matmul)
-methodcaller = opmethod(operator.methodcaller)
-mod = opmethod(operator.mod)
-mul = opmethod(operator.mul)
-ne = opmethod(operator.ne)
-neg = opmethod(operator.neg)
-not_ = opmethod(operator.not_)
-or_ = opmethod(operator.or_)
-pos = opmethod(operator.pos)
-pow_ = opmethod(operator.pow)
-rshift = opmethod(operator.rshift)
-sub = opmethod(operator.sub)
-div = opmethod(operator.div)
-truediv = opmethod(operator.truediv)
-xor = opmethod(operator.xor)
-map_ = opmethod(map)
-sum_ = opmethod(sum)
-zip_ = opmethod(zip)
-filter_ = opmethod(filter)
-list_ = opmethod(list)
-tuple_ = opmethod(tuple)
-reversed_ = opmethod(reversed)
-print_ = opmethod(print)
-format_ = opmethod(format)
-import_ = opmethod(importlib.import_module)
-# pylint: enable=C0103
-
-
 @opmethod
 def call(func, *args, **kwargs):
     """
@@ -595,3 +594,119 @@ def control_dependencies(dependencies, graph=None):
     yield
     # Remove dependencies from the graph
     del graph.dependencies[-len(dependencies):]
+
+
+# pylint: disable=C0103
+abs_ = opmethod(builtins.abs)
+dict_ = opmethod(builtins.dict)
+help_ = opmethod(builtins.help)
+min_ = opmethod(builtins.min)
+setattr_ = opmethod(builtins.setattr)
+all_ = opmethod(builtins.all)
+dir_ = opmethod(builtins.dir)
+hex_ = opmethod(builtins.hex)
+next_ = opmethod(builtins.next)
+slice_ = opmethod(builtins.slice)
+any_ = opmethod(builtins.any)
+divmod_ = opmethod(builtins.divmod)
+id_ = opmethod(builtins.id)
+object_ = opmethod(builtins.object)
+sorted_ = opmethod(builtins.sorted)
+ascii_ = opmethod(builtins.ascii)
+enumerate_ = opmethod(builtins.enumerate)
+input_ = opmethod(builtins.input)
+oct_ = opmethod(builtins.oct)
+staticmethod_ = opmethod(builtins.staticmethod)
+bin_ = opmethod(builtins.bin)
+eval_ = opmethod(builtins.eval)
+int_ = opmethod(builtins.int)
+open_ = opmethod(builtins.open)
+str_ = opmethod(builtins.str)
+bool_ = opmethod(builtins.bool)
+exec_ = opmethod(builtins.exec)
+isinstance_ = opmethod(builtins.isinstance)
+ord_ = opmethod(builtins.ord)
+sum_ = opmethod(builtins.sum)
+bytearray_ = opmethod(builtins.bytearray)
+filter_ = opmethod(builtins.filter)
+issubclass_ = opmethod(builtins.issubclass)
+pow_ = opmethod(builtins.pow)
+super_ = opmethod(builtins.super)
+bytes_ = opmethod(builtins.bytes)
+float_ = opmethod(builtins.float)
+iter_ = opmethod(builtins.iter)
+print_ = opmethod(builtins.print)
+tuple_ = opmethod(builtins.tuple)
+callable_ = opmethod(builtins.callable)
+format_ = opmethod(builtins.format)
+len_ = opmethod(builtins.len)
+property_ = opmethod(builtins.property)
+type_ = opmethod(builtins.type)
+chr_ = opmethod(builtins.chr)
+frozenset_ = opmethod(builtins.frozenset)
+list_ = opmethod(builtins.list)
+range_ = opmethod(builtins.range)
+vars_ = opmethod(builtins.vars)
+classmethod_ = opmethod(builtins.classmethod)
+getattr_ = opmethod(builtins.getattr)
+locals_ = opmethod(builtins.locals)
+repr_ = opmethod(builtins.repr)
+zip_ = opmethod(builtins.zip)
+compile_ = opmethod(builtins.compile)
+globals_ = opmethod(builtins.globals)
+map_ = opmethod(builtins.map)
+reversed_ = opmethod(builtins.reversed)
+complex_ = opmethod(builtins.complex)
+hasattr_ = opmethod(builtins.hasattr)
+max_ = opmethod(builtins.max)
+round_ = opmethod(builtins.round)
+delattr_ = opmethod(builtins.delattr)
+hash_ = opmethod(builtins.hash)
+memoryview_ = opmethod(builtins.memoryview)
+set_ = opmethod(builtins.set)
+
+add = opmethod(operator.add)
+and_ = opmethod(operator.and_)
+attrgetter = opmethod(operator.attrgetter)
+concat = opmethod(operator.concat)
+contains = opmethod(operator.contains)
+countOf = opmethod(operator.countOf)
+delitem = opmethod(operator.delitem)
+eq = opmethod(operator.eq)
+floordiv = opmethod(operator.floordiv)
+ge = opmethod(operator.ge)
+getitem = opmethod(operator.getitem)
+gt = opmethod(operator.gt)
+index = opmethod(operator.index)
+indexOf = opmethod(operator.indexOf)
+inv = opmethod(operator.inv)
+invert = opmethod(operator.invert)
+ior = opmethod(operator.ior)
+ipow = opmethod(operator.ipow)
+irshift = opmethod(operator.irshift)
+is_ = opmethod(operator.is_)
+is_not = opmethod(operator.is_not)
+itemgetter = opmethod(operator.itemgetter)
+le = opmethod(operator.le)
+length_hint = opmethod(operator.length_hint)
+lshift = opmethod(operator.lshift)
+lt = opmethod(operator.lt)
+if six.PY3:
+    matmul = opmethod(operator.matmul)
+methodcaller = opmethod(operator.methodcaller)
+mod = opmethod(operator.mod)
+mul = opmethod(operator.mul)
+ne = opmethod(operator.ne)
+neg = opmethod(operator.neg)
+not_ = opmethod(operator.not_)
+or_ = opmethod(operator.or_)
+pos = opmethod(operator.pos)
+rshift = opmethod(operator.rshift)
+setitem = opmethod(operator.setitem)
+sub = opmethod(operator.sub)
+truediv = opmethod(operator.truediv)
+truth = opmethod(operator.truth)
+xor = opmethod(operator.xor)
+
+import_ = opmethod(importlib.import_module)
+# pylint: enable=C0103

@@ -17,7 +17,15 @@
 import json
 from setuptools import setup, find_packages
 
-with open("version.json") as fp:
-    kwargs = json.load(fp)  # pylint: disable=invalid-name
+with open('README.md') as fp:
+    long_description = fp.read()
 
-setup(packages=find_packages(), **kwargs)
+with open('version.json') as fp:
+    kwargs = json.load(fp)
+
+setup(
+    packages=find_packages(),
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    **kwargs
+)
