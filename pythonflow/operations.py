@@ -45,7 +45,7 @@ class conditional(Operation):  # pylint: disable=C0103,W0223
     Note that the conditional operation will only execute one branch of the computation graph
     depending on `predicate`.
     """
-    def __init__(self, predicate, x, y=None, *, length=None, name=None, dependencies=None):  # pylint: disable=W0235
+    def __init__(self, predicate, x, y=None, length=None, name=None, dependencies=None):  # pylint: disable=W0235
         super(conditional, self).__init__(predicate, x, y,
                                           length=length, name=name, dependencies=dependencies)
 
@@ -135,9 +135,14 @@ def cache(operation, get, put, key=None):
         dependencies = operation.args + tuple(operation.kwargs.values())
         key = hash_(dependencies)
 
+    if six.PY2:
+        file_not_found_exc = IOError
+    else:
+        file_not_found_exc = FileNotFoundError
+
     return try_(
         func_op(get, key), [
-            ((KeyError, FileNotFoundError),
+            ((KeyError, file_not_found_exc),
              identity(operation, dependencies=[func_op(put, key, operation)]))  # pylint: disable=unexpected-keyword-arg
         ]
     )
@@ -199,17 +204,21 @@ constant = identity  # pylint: disable=invalid-name
 
 
 @opmethod
-def assert_(condition, message=None, *args, value=None):  # pylint: disable=keyword-arg-before-vararg
+def assert_(condition, *args, **kwargs):  # pylint: disable=keyword-arg-before-vararg
     """
     Return `value` if the `condition` is satisfied and raise an `AssertionError` with the specified
     `message` and `args` if not.
     """
+    message = None
+    if args:
+        message = args[0]
+        args = args[1:]
     if message:
         assert condition, message % args
     else:
         assert condition
 
-    return value
+    return kwargs.get('value')
 
 
 @opmethod

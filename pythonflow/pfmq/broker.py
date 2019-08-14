@@ -18,7 +18,7 @@ import logging
 import uuid
 import zmq
 
-from ._base import Base
+from ._base import Base, str_to_hex, int_from_bytes
 from .task import Task, apply
 
 
@@ -40,7 +40,7 @@ class Broker(Base):
     """
     def __init__(self, backend_address, frontend_address=None, start=False):
         self.backend_address = backend_address
-        self.frontend_address = frontend_address or f'inproc://{uuid.uuid4().hex}'
+        self.frontend_address = frontend_address or 'inproc://{}'.format(uuid.uuid4().hex)
         super(Broker, self).__init__(start)
 
     def run(self):  # pylint: disable=too-many-statements,too-many-locals,too-many-branches
@@ -85,14 +85,15 @@ class Broker(Base):
 
                 # Receive responses or sign-up messages from the backend
                 if sockets.get(backend) == zmq.POLLIN:
-                    worker, _, client, *message = backend.recv_multipart()
+                    result = backend.recv_multipart()
+                    worker, _, client, message = result[0], result[1], result[2], result[3:]
                     workers.add(worker)
 
                     if client:
                         _, identifier, status, response = message
                         LOGGER.debug(
                             'received RESPONSE with identifier %s from %s for %s with status %s',
-                            int.from_bytes(identifier, 'little'), worker.hex(), client.hex(),
+                            int_from_bytes(identifier), str_to_hex(worker), str_to_hex(client),
                             self.STATUS[status]
                         )
                         # Try to forward the message to a waiting client
@@ -104,20 +105,21 @@ class Broker(Base):
                             cache.setdefault(client, []).append((identifier, status, response))
                     else:
                         LOGGER.debug('received SIGN-UP message from %s; now %d workers',
-                                     worker.hex(), len(workers))
+                                     str_to_hex(worker), len(workers))
 
                 # Receive requests from the frontend, forward to the workers, and return responses
                 if sockets.get(frontend) == zmq.POLLIN:
-                    client, _, identifier, *request = frontend.recv_multipart()
+                    result = frontend.recv_multipart()
+                    client, _, identifier, request = result[0], result[1], result[2], result[3:]
                     LOGGER.debug('received REQUEST with byte identifier %s from %s',
-                                 identifier, client.hex())
+                                 identifier, str_to_hex(client))
 
                     if identifier:
                         worker = workers.pop()
-                        backend.send_multipart([worker, _, client, _, identifier, *request])
+                        backend.send_multipart([worker, _, client, _, identifier] + list(request))
                         LOGGER.debug('forwarded REQUEST with identifier %s from %s to %s',
-                                     int.from_bytes(identifier, 'little'), client.hex(),
-                                     worker.hex())
+                                     int_from_bytes(identifier), str_to_hex(client),
+                                     str_to_hex(worker))
 
                     try:
                         self._forward_response(frontend, client, *cache[client].pop(0))
@@ -125,7 +127,7 @@ class Broker(Base):
                         # Send a dispatch notification if the task sent a new message
                         if identifier:
                             frontend.send_multipart([client, _, _])
-                            LOGGER.debug('notified %s of REQUEST dispatch', client.hex())
+                            LOGGER.debug('notified %s of REQUEST dispatch', str_to_hex(client))
                         # Add the task to the list of tasks waiting for responses otherwise
                         else:
                             clients.add(client)
@@ -136,7 +138,7 @@ class Broker(Base):
     def _forward_response(cls, frontend, client, identifier, status, response):  # pylint: disable=too-many-arguments
         frontend.send_multipart([client, b'', identifier, status, response])
         LOGGER.debug('forwarded RESPONSE with identifier %s to %s with status %s',
-                     int.from_bytes(identifier, 'little'), client, cls.STATUS[status])
+                     int_from_bytes(identifier), client, cls.STATUS[status])
 
     def imap(self, requests, **kwargs):
         """

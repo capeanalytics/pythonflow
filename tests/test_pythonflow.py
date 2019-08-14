@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import division
+
 import logging
 import os
 import pickle
@@ -222,7 +224,7 @@ def test_assert_with_dependencies(message):
     with pf.Graph() as graph:
         x = pf.placeholder(name='x')
         if message:
-            assertion = pf.assert_(x < 10, None, message, 10, x)
+            assertion = pf.assert_(x < 10, message, 10, x)
         else:
             assertion = pf.assert_(x < 10)
         with pf.control_dependencies([assertion]):
@@ -445,18 +447,29 @@ def test_cache():
     assert len(cache) == 2
 
 
+class Py2TemporaryDirectory(object):
+    def __enter__(self):
+        self.dir_name = tempfile.mkdtemp()
+        return self.dir_name
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        import shutil
+        shutil.rmtree(self.dir_name)
+
+
 def test_cache_file():
-    with tempfile.TemporaryDirectory() as tmpdir:
+    make_tmpdir = Py2TemporaryDirectory if six.PY2 else tempfile.TemporaryDirectory
+    with make_tmpdir() as tmpdir:
         with pf.Graph() as graph:
             a = pf.placeholder()
             b = pf.placeholder()
-            c = pf.cache_file(a + b, f"{tmpdir}/%s.pkl")
+            c = pf.cache_file(a + b, "{}/%s.pkl".format(tmpdir))
 
         assert graph(c, {a: 5, b: 9}) == 14
-        filename = f"{tmpdir}/{hash((5, 9))}.pkl"
+        filename = "{}/{}.pkl".format(tmpdir, hash((5, 9)))
         assert os.path.isfile(filename)
         # Move the file to a different location and ensure the value is loaded
-        os.rename(filename, f"{tmpdir}/{hash((8, 1))}.pkl")
+        os.rename(filename, "{}/{}.pkl".format(tmpdir, hash((8, 1))))
         assert graph(c, {a: 8, b: 1}) == 14
 
 
@@ -546,7 +559,8 @@ def test_stack_trace():
         graph(c, {a: 1, b: 0})
         raise RuntimeError("did not raise ZeroDivisionError")
     except ZeroDivisionError as ex:
-        assert isinstance(ex.__cause__, pf.EvaluationError)
+        if six.PY3:
+            assert isinstance(ex.__cause__, pf.EvaluationError)
 
 
 def test_placeholder_with_kwargs():

@@ -22,7 +22,7 @@ import uuid
 
 import zmq
 
-from ._base import Base
+from ._base import Base, str_to_hex, int_from_bytes
 
 
 LOGGER = logging.getLogger(__name__)
@@ -105,9 +105,10 @@ class Worker(Base):
 
                     # Process messages
                     if sockets.get(socket) == zmq.POLLIN:
-                        client, _, identifier, *request = socket.recv_multipart()
+                        result = socket.recv_multipart()
+                        client, identifier, request = result[0], result[2], result[3:]
                         LOGGER.debug('received REQUEST with identifier %d from %s',
-                                     int.from_bytes(identifier, 'little'), client.hex())
+                                     int_from_bytes(identifier), str_to_hex(client))
 
                         try:
                             response = self.target(self.loads(*request))
@@ -117,14 +118,14 @@ class Worker(Base):
                             response = value, "".join(traceback.format_exception(etype, value, tb))
                             status = self.STATUS['error']
                             LOGGER.exception("failed to process REQUEST with identifier %d from %s",
-                                             int.from_bytes(identifier, 'little'), client.hex())
+                                             int_from_bytes(identifier), str_to_hex(client))
 
                         try:
                             response = self.dumps(response)
                         except Exception:  # pylint: disable=broad-except
                             LOGGER.exception(
                                 "failed to serialise RESPONSE with identifier %d for %s",
-                                int.from_bytes(identifier, 'little'), client.hex()
+                                int_from_bytes(identifier), str_to_hex(client)
                             )
                             response = b""
                             status = self.STATUS['serialization_error']
@@ -132,7 +133,7 @@ class Worker(Base):
                         socket.send_multipart([client, b'', identifier, status, response])
                         LOGGER.debug(
                             'sent RESPONSE with identifier %s to %s with status %s',
-                            int.from_bytes(identifier, 'little'), client.hex(), self.STATUS[status]
+                            int_from_bytes(identifier), str_to_hex(client), self.STATUS[status]
                         )
 
         LOGGER.error("maximum number of retries (%d) for %s exceeded", self.max_retries,

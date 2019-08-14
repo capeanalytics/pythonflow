@@ -10,5 +10,5 @@ for line in inputs:
     if match:
         path = match.group("path")
         path = os.path.relpath(path)
-        line = f"-e {path}\n"
+        line = "-e {}\n".format(path)
     sys.stdout.write(line)
