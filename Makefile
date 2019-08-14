@@ -1,28 +1,23 @@
-.PHONY: image tests lint_tests code_tests docs sdist testpypi pypi
+.PHONY : all tests docs lint_tests code_tests clean install
 
-image : dev-requirements.txt
-	docker build -t pythonflow .
+all : tests docs
 
-tests : lint_tests code_tests
+tests : code_tests lint_tests
 
 lint_tests :
 	pylint pythonflow
 
 code_tests :
-	py.test --cov pythonflow --cov-fail-under=100 --cov-report=term-missing --cov-report=html
+	py.test --cov pythonflow --cov-fail-under=100 --cov-report=term-missing --cov-report=html --verbose --durations=5 -s
 
 docs :
 	sphinx-build -b doctest docs build
 	sphinx-build -nWT docs build
 
-sdist :
-	python setup.py sdist
-
-testpypi : sdist
-	twine upload --repository-url https://test.pypi.org/legacy/ dist/pythonflow-*
-
-pypi : sdist
-	twine upload dist/pythonflow-*
-
 clean :
 	rm -rf build/
+
+requirements.txt : requirements.in setup.py
+	pip-compile -v requirements.in
+	./make_paths_relative.py < requirements.txt > requirements.tmp
+	mv requirements.tmp $@

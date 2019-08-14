@@ -16,8 +16,12 @@
 
 import collections
 import contextlib
+import logging
 import math
 import time
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class lazy_import:  # pylint: disable=invalid-name, too-few-public-methods
@@ -111,3 +115,18 @@ class Profiler:  # pylint: disable=too-few-public-methods
 
     def __str__(self):
         return "\n".join(['%s: %s' % item for item in self.get_slow_operations(10).items()])
+
+
+@contextlib.contextmanager
+def _noop_callback(*_):
+    yield
+
+
+def deprecated(func):  # pragma: no cover
+    """
+    Mark a callable as deprecated.
+    """
+    def _wrapper(*args, **kwargs):
+        LOGGER.warning("%s is deprecated", func)
+        return func(*args, **kwargs)
+    return _wrapper
