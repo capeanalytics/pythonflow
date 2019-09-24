@@ -1,16 +1,14 @@
-from __future__ import division
 import time
 import random
 import uuid
 import pytest
-import six
 import pythonflow as pf
 from pythonflow import pfmq
 
 
 @pytest.fixture
 def backend_address():
-    return 'inproc://{}'.format(uuid.uuid4().hex)
+    return f'inproc://{uuid.uuid4().hex}'
 
 
 @pytest.fixture
@@ -116,8 +114,7 @@ def test_task_timeout(backend_address):
     task.run()
     duration = time.time() - start
     assert duration > .3
-    exc_class = OSError if six.PY2 else TimeoutError
-    with pytest.raises(exc_class):
+    with pytest.raises(TimeoutError):
         list(task)
 
 

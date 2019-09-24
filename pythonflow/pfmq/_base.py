@@ -17,14 +17,12 @@
 import logging
 import threading
 import uuid
-import binascii
-import struct
 
 import zmq
 
 LOGGER = logging.getLogger(__name__)
 
-class Base(object):
+class Base:
     """
     Base class for running a ZeroMQ event loop in a background thread with a PAIR channel for
     cancelling the background thread.
@@ -36,7 +34,7 @@ class Base(object):
     """
     def __init__(self, start):
         self._thread = None
-        self._cancel_address = 'inproc://{}'.format(uuid.uuid4().hex)
+        self._cancel_address = f'inproc://{uuid.uuid4().hex}'
         self._cancel_parent = zmq.Context.instance().socket(zmq.PAIR)  # pylint: disable=E1101
         self._cancel_parent.bind(self._cancel_address)
 
@@ -93,8 +91,7 @@ class Base(object):
         Run the event loop in a background thread.
         """
         if not self.is_alive:
-            self._thread = threading.Thread(target=self.run)
-            self._thread.daemon = True
+            self._thread = threading.Thread(target=self.run, daemon=True)
             self._thread.start()
         return self._thread
 
@@ -107,19 +104,3 @@ class Base(object):
         This call is blocking.
         """
         raise NotImplementedError
-
-
-def str_to_hex(str):
-    return binascii.b2a_hex(str)
-
-
-def int_to_bytes(int, length):
-    bytes = struct.pack('<Q', int)
-    assert length <= len(bytes)
-    return bytes[:length]
-
-
-def int_from_bytes(bytes):
-    assert len(bytes) <= 8
-    bytes = (bytes + b'\x00' * 8)[:8]
-    return struct.unpack('<Q', bytes)[0]

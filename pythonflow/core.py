@@ -75,11 +75,11 @@ class Graph(object):
         """
         if isinstance(operation, Operation):
             if operation.graph is not self:
-                raise RuntimeError("operation '{}' does not belong to this graph".format(operation))
+                raise RuntimeError(f"operation '{operation}' does not belong to this graph")
             return operation
         elif isinstance(operation, six.string_types):
             return self.operations[operation]
-        raise ValueError("'{}' is not an `Operation` instance or operation name".format(operation))
+        raise ValueError(f"'{operation}' is not an `Operation` instance or operation name")
 
     def normalize_context(self, context, **kwargs):
         """
@@ -114,19 +114,19 @@ class Graph(object):
             value = context.pop(operation)
             operation = self.normalize_operation(operation)
             if operation in context:
-                raise ValueError("duplicate value for operation '{}'".format(operation))
+                raise ValueError(f"duplicate value for operation '{operation}'")
             context[operation] = value
 
         # Add the keyword arguments
         for name, value in kwargs.items():
             operation = self.operations[name]
             if operation in context:
-                raise ValueError("duplicate value for operation '{}'".format(operation))
+                raise ValueError(f"duplicate value for operation '{operation}'")
             context[operation] = value
 
         return context
 
-    def apply(self, fetches, context=None, callback=None, **kwargs):
+    def apply(self, fetches, context=None, *, callback=None, **kwargs):
         """
         Evaluate one or more operations given a context.
 
@@ -279,7 +279,7 @@ class Operation(object):  # pylint:disable=too-few-public-methods,too-many-insta
             If the current name of the operation cannot be found in the associated graph.
         """
         if name in self.graph.operations:
-            raise ValueError("duplicate name '{}'".format(name))
+            raise ValueError(f"duplicate name '{name}'")
         if self._name is not None:
             self.graph.operations.pop(self._name)
         self.graph.operations[name] = self
@@ -360,28 +360,21 @@ class Operation(object):  # pylint:disable=too-few-public-methods,too-many-insta
             stack = []
             interactive = False
             for frame in reversed(operation._stack):  # pylint: disable=protected-access
-                # py2's traceback.extract_stack() returns a tuple (filename, line number, function name*, text)
-                # py3 returns a StackSummary object, which contains a list of FrameSummary object.
-                filename = frame.filename if six.PY3 else frame[0]
-                if 'pythonflow' in filename:
-                    continue
                 # Do not capture any internal stack traces
+                if 'pythonflow' in frame.filename:
+                    continue
                 # Stop tracing at the last interactive cell
-                if interactive and not filename.startswith('<'):
+                if interactive and not frame.filename.startswith('<'):
                     break  # pragma: no cover
-                interactive = filename.startswith('<')
+                interactive = frame.filename.startswith('<')
                 stack.append(frame)
 
             stack = "".join(traceback.format_list(reversed(stack)))
             message = "Failed to evaluate operation `%s` defined at:\n\n%s" % (operation, stack)
-            six.raise_from(ex, EvaluationError(message))
+            raise ex from EvaluationError(message)
 
-    if six.PY3:
-        def __bool__(self):
-            return True
-    else:
-        def __nonzero__(self):
-            return True
+    def __bool__(self):
+        return True
 
     def __hash__(self):
         return id(self)
@@ -432,6 +425,12 @@ class Operation(object):  # pylint:disable=too-few-public-methods,too-many-insta
 
     def __rmul__(self, other):
         return mul(other, self, graph=self.graph)
+
+    def __div__(self, other):
+        return div(self, other, graph=self.graph)
+
+    def __rdiv__(self, other):
+        return div(other, self, graph=self.graph)
 
     def __truediv__(self, other):
         return truediv(self, other, graph=self.graph)
@@ -600,8 +599,7 @@ def control_dependencies(dependencies, graph=None):
 # pylint: disable=C0103
 abs_ = opmethod(builtins.abs)
 dict_ = opmethod(builtins.dict)
-if six.PY3:
-    help_ = opmethod(builtins.help)
+help_ = opmethod(builtins.help)
 min_ = opmethod(builtins.min)
 setattr_ = opmethod(builtins.setattr)
 all_ = opmethod(builtins.all)
@@ -625,6 +623,7 @@ int_ = opmethod(builtins.int)
 open_ = opmethod(builtins.open)
 str_ = opmethod(builtins.str)
 bool_ = opmethod(builtins.bool)
+exec_ = opmethod(builtins.exec)
 isinstance_ = opmethod(builtins.isinstance)
 ord_ = opmethod(builtins.ord)
 sum_ = opmethod(builtins.sum)
@@ -689,8 +688,7 @@ is_ = opmethod(operator.is_)
 is_not = opmethod(operator.is_not)
 itemgetter = opmethod(operator.itemgetter)
 le = opmethod(operator.le)
-if six.PY3:
-    length_hint = opmethod(operator.length_hint)
+length_hint = opmethod(operator.length_hint)
 lshift = opmethod(operator.lshift)
 lt = opmethod(operator.lt)
 if six.PY3:

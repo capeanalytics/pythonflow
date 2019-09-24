@@ -20,12 +20,10 @@ import pickle
 import queue
 import time
 import uuid
-import errno
 
-import six
 import zmq
 
-from ._base import Base, int_to_bytes, int_from_bytes
+from ._base import Base
 
 
 LOGGER = logging.getLogger(__name__)
@@ -121,7 +119,7 @@ class Task(Base):  # pylint: disable=too-many-instance-attributes
                             identifier, request = next(requests)
                             num_bytes = max((identifier.bit_length() + 7) // 8, 1)
                             message = [
-                                int_to_bytes(identifier, num_bytes),
+                                identifier.to_bytes(num_bytes, 'little'),
                                 self.dumps(request)
                             ]
                             # Store the most recent identifier
@@ -158,12 +156,7 @@ class Task(Base):  # pylint: disable=too-many-instance-attributes
                             message = "maximum number of retries (%d) for %s exceeded" % \
                                 (self.max_retries, self.address)
                             LOGGER.error(message)
-                            
-                            if six.PY2:
-                                exc = OSError(errno.ETIMEDOUT, message)
-                            else:
-                                exc = TimeoutError(message)
-                            self.results.put(('timeout', exc))
+                            self.results.put(('timeout', TimeoutError(message)))
                             return
                         break
 
@@ -176,14 +169,13 @@ class Task(Base):  # pylint: disable=too-many-instance-attributes
                         return
 
                     if sockets.get(socket) == zmq.POLLIN:
-                        result = socket.recv_multipart()
-                        identifier, response = result[0], result[1:]
+                        identifier, *response = socket.recv_multipart()
                         if not identifier:
                             LOGGER.debug('received dispatch notification')
                             continue
 
                         # Decode the identifier and remove the corresponding request from `pending`
-                        identifier = int_from_bytes(identifier)
+                        identifier = int.from_bytes(identifier, 'little')
                         LOGGER.debug('received RESPONSE for identifier %d (next: %d, end: %s)',
                                      identifier, next_identifier, last_identifier)
                         pending.pop(identifier, None)
