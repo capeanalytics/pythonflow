@@ -1,7 +1,7 @@
 Installation of Pythonflow
 ==========================
 
-This section guides you through the installation of Pythonflow, which only supports python 3.
+This section guides you through the installation of Pythonflow.
 
 Installation for users
 ----------------------

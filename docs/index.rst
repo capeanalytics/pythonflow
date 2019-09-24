@@ -20,7 +20,7 @@ At Spotify, we use Pythonflow in data preprocessing pipelines for machine learni
 
    install
    guide
-   distributed
+   consumer_producer
    pythonflow
 
 

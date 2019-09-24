@@ -36,7 +36,6 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-
 with open('../version.json') as fp:
     kwargs = json.load(fp)
 
@@ -206,9 +205,7 @@ napoleon_numpy_docstring = True
 
 # Ignore some warnings (https://stackoverflow.com/a/30624034/1150961)
 nitpick_ignore = [
-    ('py:class', 'iterable'),
-    ('py:class', 'None'),
-    ('py:class', 'callable'),
+    ('py:obj', 'iterable'),
 ]
 
 intersphinx_mapping = {'python': ('https://docs.python.org/3.6', None)}

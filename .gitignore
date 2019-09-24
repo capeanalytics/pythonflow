@@ -44,7 +44,6 @@ nosetests.xml
 coverage.xml
 *,cover
 .hypothesis/
-.pytest_cache/
 
 # Translations
 *.mo
@@ -91,7 +90,6 @@ ENV/
 
 # Playground for experiments
 playground/
-~*
 
 # OSX files
 .DS_Store
@@ -99,9 +97,8 @@ playground/
 # VS Code project settings
 .vscode/
 
-# Docker interface
-di.yml
-Dockerfile
+# Docker run CLI
+.dr
 
 # Data for examples
 mldata/

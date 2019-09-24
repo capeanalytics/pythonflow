@@ -1,4 +1,4 @@
-.git/**/*
-.git/
-playground/**/*
-playground/
+**/__pycache__
+**/.git
+**/playground
+**/build

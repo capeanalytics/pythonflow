@@ -13,16 +13,12 @@
 # limitations under the License.
 
 import logging
-import os
 import pickle
 import random
-import tempfile
-import threading
 import uuid
-
+import pythonflow as pf
 import pytest
 import six
-import pythonflow as pf
 
 
 def test_consistent_context():
@@ -202,21 +198,6 @@ def test_conditional():
         graph(z, condition=False)
 
 
-def test_conditional_with_length():
-    def f(a):
-        return a, a
-
-    with pf.Graph() as graph:
-        x = pf.constant(4)
-        y = pf.placeholder(name='y')
-        condition = pf.placeholder(name='condition')
-
-        z1, z2 = pf.conditional(condition, pf.func_op(f, x), pf.func_op(f, y), length=2)
-
-    assert graph([z1, z2], condition=True) == (4, 4)
-    assert graph([z1, z2], condition=False, y=5) == (5, 5)
-
-
 @pytest.mark.parametrize('message', [None, "x should be smaller than %d but got %d"])
 def test_assert_with_dependencies(message):
     with pf.Graph() as graph:
@@ -312,12 +293,6 @@ def test_lazy_constant():
     assert time.time() - start < 0.01
 
 
-def test_lazy_constant_not_callable():
-    with pytest.raises(ValueError):
-        with pf.Graph() as graph:
-            pf.lazy_constant(None)
-
-
 def test_graph_pickle():
     with pf.Graph() as graph:
         x = pf.placeholder('x')
@@ -332,241 +307,9 @@ def test_graph_pickle():
     assert desired == actual
 
 
-def test_no_default_graph():
-    with pytest.raises(ValueError):
-        pf.placeholder()
-
-
-def test_unpack_without_length():
-    with pytest.raises(TypeError):
-        with pf.Graph():
-            _1, _2 = pf.placeholder()
-
-
 def test_import():
     with pf.Graph() as graph:
         os_ = pf.import_('os')
         isfile = os_.path.isfile(__file__)
 
     assert graph(isfile)
-
-
-def test_tuple():
-    expected = 13
-    with pf.Graph() as graph:
-        a = pf.constant(expected)
-        b = pf.identity((a, a))
-    actual, _ = graph(b)
-    assert actual is expected, "expected %s but got %s" % (expected, actual)
-
-
-def test_list():
-    expected = 13
-    with pf.Graph() as graph:
-        a = pf.constant(expected)
-        b = pf.identity([a, a])
-    actual, _ = graph(b)
-    assert actual is expected, "expected %s but got %s" % (expected, actual)
-
-
-def test_dict():
-    expected = 13
-    with pf.Graph() as graph:
-        a = pf.constant(expected)
-        b = pf.identity({'foo': a})
-    actual = graph(b)['foo']
-    assert actual is expected, "expected %s but got %s" % (expected, actual)
-
-
-def test_slice():
-    with pf.Graph() as graph:
-        a = pf.constant(range(100))
-        b = pf.constant(1)
-        c = a[b:]
-
-    assert len(graph(c)) == 99
-
-
-def test_bool():
-    with pf.Graph() as graph:
-        a = pf.placeholder()
-
-    assert a
-
-
-@pytest.mark.parametrize('context, expected', [
-    ({'a': 1, 'b': 0}, 'zero-division'),
-    ({'a': 1, 'b': 2}, 0.5),
-])
-def test_try(context, expected):
-    finally_reached = []
-
-    with pf.Graph() as graph:
-        a = pf.placeholder('a')
-        b = pf.placeholder('b')
-        c = pf.try_(
-            a / b,
-            [(ZeroDivisionError, 'zero-division')],
-            pf.func_op(lambda: finally_reached.append('done'))
-        )
-
-    assert graph(c, context) == expected
-    assert finally_reached
-
-
-def test_cache():
-    calls = []
-    cache = {}
-
-    @pf.opmethod
-    def _cached_add(x, y):
-        calls.append((x, y))
-        return x + y
-
-    with pf.Graph() as graph:
-        a = pf.placeholder()
-        b = pf.placeholder()
-        c = pf.cache(_cached_add(a, b), cache.__getitem__, cache.setdefault)
-
-    for _ in range(3):
-        assert graph(c, {a: 1, b: 2}) == 3
-        assert len(calls) == 1
-        assert len(cache) == 1
-
-    # Modify the cache value
-    key, = cache.keys()
-    assert key == hash((1, 2))
-    cache[key] = -1
-    assert graph(c, {a: 1, b: 2}) == -1
-
-    # Check another call
-    assert graph(c, {a: 1, b: 4}) == 5
-    assert len(calls) == 2
-    assert len(cache) == 2
-
-
-def test_cache_file():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        with pf.Graph() as graph:
-            a = pf.placeholder()
-            b = pf.placeholder()
-            c = pf.cache_file(a + b, f"{tmpdir}/%s.pkl")
-
-        assert graph(c, {a: 5, b: 9}) == 14
-        filename = f"{tmpdir}/{hash((5, 9))}.pkl"
-        assert os.path.isfile(filename)
-        # Move the file to a different location and ensure the value is loaded
-        os.rename(filename, f"{tmpdir}/{hash((8, 1))}.pkl")
-        assert graph(c, {a: 8, b: 1}) == 14
-
-
-def test_try_not_caught():
-    with pf.Graph() as graph:
-        a = pf.placeholder()
-        b = pf.placeholder()
-        c = pf.try_(a / b, [(ValueError, 'value-error')])
-
-    with pytest.raises(ZeroDivisionError):
-        graph(c, {a: 1, b: 0})
-
-
-def test_invalid_fetches():
-    with pf.Graph():
-        a = pf.placeholder()
-    graph = pf.Graph()
-
-    with pytest.raises(RuntimeError):
-        graph(a)
-
-    with pytest.raises(KeyError):
-        graph('a')
-
-    with pytest.raises(ValueError):
-        graph(123)
-
-
-def test_invalid_context():
-    with pytest.raises(ValueError):
-        pf.Graph().apply([], "not-a-mapping")
-
-    with pytest.raises(ValueError):
-        pf.Graph().apply([], {123: None})
-
-
-def test_duplicate_value():
-    with pf.Graph() as graph:
-        a = pf.placeholder('a')
-
-    with pytest.raises(ValueError):
-        graph([], {a: 1}, a=1)
-
-    with pytest.raises(ValueError):
-        graph([], {a: 1, 'a': 1})
-
-
-def test_conditional_callback():
-    with pf.Graph() as graph:
-        a = pf.constant(1)
-        b = pf.constant(2)
-        c = pf.placeholder()
-        d = pf.conditional(c, a, b + 1)
-
-    # Check that we have "traced" the correct number of operation evaluations
-    tracer = pf.Profiler()
-    assert graph(d, {c: True}, callback=tracer) == 1
-    assert len(tracer.times) == 2
-    tracer = pf.Profiler()
-    assert graph(d, {c: False}, callback=tracer) == 3
-    assert len(tracer.times) == 3
-
-
-def test_try_callback():
-    with pf.Graph() as graph:
-        a = pf.placeholder('a')
-        b = pf.assert_((a > 0).set_name('condition'), value=a, name='b')
-        c = pf.try_(b, [
-            (AssertionError, (pf.constant(41, name='41') + 1).set_name('alternative'))
-        ])
-
-    tracer = pf.Profiler()
-    graph(c, {a: 3}, callback=tracer) == 3
-    assert len(tracer.times) == 3
-
-    graph(c, {a: -2}, callback=tracer) == 42
-    assert len(tracer.times) == 5
-
-
-def test_stack_trace():
-    with pf.Graph() as graph:
-        a = pf.placeholder()
-        b = pf.placeholder()
-        c = a / b
-
-    try:
-        graph(c, {a: 1, b: 0})
-        raise RuntimeError("did not raise ZeroDivisionError")
-    except ZeroDivisionError as ex:
-        assert isinstance(ex.__cause__, pf.EvaluationError)
-
-
-def test_placeholder_with_kwargs():
-    with pf.Graph() as graph:
-        a = pf.placeholder(length=2)
-        b, c = a
-
-    assert graph([b, c], {a: [1, 2]}) == (1, 2)
-
-
-def test_thread_compatibility():
-    def work(event):
-        with pf.Graph() as graph:
-            event.wait()
-    event = threading.Event()
-    thread = threading.Thread(target=work, args=(event,))
-    thread.start()
-    try:
-        with pf.Graph() as graph:
-            event.set()
-    except AssertionError as e:
-        event.set()
-        raise e
