@@ -16,7 +16,6 @@
 
 from __future__ import print_function
 
-import builtins
 import collections
 import contextlib
 import functools
@@ -26,6 +25,8 @@ import six
 import threading
 import traceback
 import uuid
+
+from six.moves import builtins
 
 from .util import _noop_callback
 
@@ -614,7 +615,8 @@ divmod_ = opmethod(builtins.divmod)
 id_ = opmethod(builtins.id)
 object_ = opmethod(builtins.object)
 sorted_ = opmethod(builtins.sorted)
-ascii_ = opmethod(builtins.ascii)
+if six.PY3:
+    ascii_ = opmethod(builtins.ascii)
 enumerate_ = opmethod(builtins.enumerate)
 input_ = opmethod(builtins.input)
 oct_ = opmethod(builtins.oct)

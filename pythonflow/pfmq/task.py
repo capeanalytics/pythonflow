@@ -17,13 +17,14 @@
 import collections
 import logging
 import pickle
-import queue
 import time
 import uuid
 import errno
 
 import six
 import zmq
+
+from six.moves import queue
 
 from ._base import Base, int_to_bytes, int_from_bytes
 
