@@ -182,7 +182,7 @@ class Consumer(ZeroBase):
         while identifier not in cache:
             message = self.puller.recv()
             _identifier = message[:self.IDENTIFIER_SIZE]
-            status = message[self.IDENTIFIER_SIZE]
+            status = message[self.IDENTIFIER_SIZE:self.IDENTIFIER_SIZE + 1]
             payload = self.loads(message[1 + self.IDENTIFIER_SIZE:])
             if status != b'\x00':
                 raise payload
@@ -353,7 +353,7 @@ class Processor(ZeroBase):  # pragma: no cover
         while True:
             message = self.puller.recv()
             identifier = message[:self.IDENTIFIER_SIZE]
-            command = message[self.IDENTIFIER_SIZE]
+            command = message[self.IDENTIFIER_SIZE:self.IDENTIFIER_SIZE + 1]
             status = b'\x00'
             payload = None
             try:

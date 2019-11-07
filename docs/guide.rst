@@ -299,6 +299,27 @@ Sometimes you may want to evaluate different parts of the DAG depending on a con
 
 Note that the :code:`pf.conditional` operation only evaluates the part of the DAG it requires to return a value. If it evaluated the entire graph, the evaluation above would have raised a :code:`ValueError` because we did not provide a value for the placeholder :code:`validation_data`.
 
+Try-except-finally operations
+-----------------------------
+
+The :code:`try_` operation allows you to evaluate an operation and fall back to alternatives if the operation fails. For example, you may want to handle divisions by zero like so.
+
+.. testcode::
+
+    with pf.Graph() as graph:
+        a = pf.placeholder('a')
+        b = pf.placeholder('b')
+        c = pf.try_(a / b, [(ZeroDivisionError, "check your inputs")])
+
+.. doctest::
+
+    >>> graph(c, a=3, b=2)
+    1.5
+    >>> graph(c, a=3, b=0)
+    'check your inputs'
+
+You can also use the :code:`finally_` argument to ensure an operation is evaluated irrespective of whether another operation succeeds or fails.
+
 Explicitly controlling dependencies
 -----------------------------------
 
@@ -373,30 +394,6 @@ To make the definition of graphs less verbose, you can also specify the return v
    Traceback (most recent call last):
    AssertionError: height must be positive but got -1.800000
 
-
-Logging
--------
-
-No software is complete without the ability to log information for later analysis or monitoring. Pythonflow supports logging through the standard python `logging module <https://docs.python.org/3/library/logging.html>`_ like so.
-
-
-.. testcode::
-
-   import logging
-   import sys
-   logging.basicConfig(stream=sys.stdout)
-
-   with pf.Graph() as graph:
-       logger = pf.Logger()
-       tea_temperature = pf.placeholder('tea_temperature')
-       with pf.control_dependencies([pf.conditional(tea_temperature > 80, logger.warning('the tea is too hot'))]):
-           tea_temperature = pf.identity(tea_temperature)
-
-.. doctest::
-
-   >>> graph(tea_temperature, tea_temperature=85)  # doctest: +SKIP
-   WARNING:root:the tea is too hot
-   85
 
 Profiling and callbacks
 -----------------------

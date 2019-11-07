@@ -1,6 +1,6 @@
 # pylint: disable=missing-docstring
 # pylint: enable=missing-docstring
-# Copyright 2017 Spotify AB
+# Copyright 2018 Spotify AB
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,18 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-from setuptools import setup, find_packages
-
-with open('README.md') as fp:
-    long_description = fp.read()
-
-with open('version.json') as fp:
-    kwargs = json.load(fp)
-
-setup(
-    packages=find_packages(),
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    **kwargs
-)
+from .task import Task, SerializationError, apply
+from .broker import Broker
+from .worker import Worker
